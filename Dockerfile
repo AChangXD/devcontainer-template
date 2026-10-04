@@ -2,15 +2,32 @@ FROM mcr.microsoft.com/devcontainers/base:ubuntu
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
+# Use PostgreSQL's official repository to match the existing version-18 data.
+# Keep cluster creation separate so installation cannot claim port 5432.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && . /etc/os-release \
+    && printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$VERSION_CODENAME" \
+       > /etc/apt/sources.list.d/pgdg.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-common \
+    && printf '\ncreate_main_cluster = false\n' >> /etc/postgresql-common/createcluster.conf \
+    && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
-    curl \
+    postgresql-18 \
+    postgresql-client-18 \
     git \
-    ca-certificates \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Expose initdb and pg_ctl as well as the PostgreSQL client tools.
+ENV PATH=/usr/lib/postgresql/18/bin:${PATH}
 
 USER vscode
 WORKDIR /home/vscode
