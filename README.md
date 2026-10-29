@@ -58,7 +58,7 @@ Use `--packages` with a comma-separated list of these IDs:
 | `node` | Node.js 22 and npm |
 | `postgres` | PostgreSQL 18 server, client tools, and a local database helper |
 | `claude` | Claude Code, installed using its native installer |
-| `codex` | Codex CLI and starter project configuration |
+| `codex` | Codex CLI and this repository's `.codex/config.toml` |
 
 Codex also installs Node.js inside the development container as its runtime dependency when `node` is not selected. Claude Code uses its native installer independently of the Node.js selection. Neither choice installs a runtime on your Mac. Sign in to the AI tools from inside the container after it builds.
 
@@ -118,6 +118,7 @@ my-app/
 ├── .codex/
 │   ├── AGENTS.md
 │   └── config.toml
+├── tmp/
 └── scripts/
     └── postgres.sh
 ```
@@ -125,6 +126,10 @@ my-app/
 The configuration lives at the project root as `.devcontainer.json`, a [location supported by VS Code](https://code.visualstudio.com/docs/devcontainers/create-dev-container). Its `name` is `my-app`, and it builds the adjacent `Dockerfile`. There is no generated `.devcontainer` directory.
 
 The Dockerfile contains the selected installation steps. Codex configuration and instruction files are generated only when Codex is selected; authentication files are never copied. The PostgreSQL helper is included only when PostgreSQL is selected. Commit these generated files with your new project so its environment is version controlled.
+
+Every generated project includes an empty `tmp/` scratch directory, excluded from Git and the Docker build context, even when no packages are selected.
+
+The generator copies this repository's `.codex/config.toml` exactly, including its model, reasoning, approval, agent, feature, plugin, and terminal settings. Edit that file to change the default for future projects. Linked installations read it on each run, so editing it or pulling repository updates takes effect without reinstalling. Published npm packages include the configuration from that release. Existing generated projects keep their own copy.
 
 PostgreSQL is installed without automatically starting a database. From the generated project's root **inside the container**, initialize and start it with:
 

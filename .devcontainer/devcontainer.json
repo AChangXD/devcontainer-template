@@ -26,7 +26,8 @@
         "PKief.material-icon-theme",
         "esbenp.prettier-vscode",
         "eamodio.gitlens",
-        "bradlc.vscode-tailwindcss"
+        "bradlc.vscode-tailwindcss",
+        "svelte.svelte-vscode"
       ]
     }
   }

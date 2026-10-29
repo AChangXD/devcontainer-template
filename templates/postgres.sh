@@ -5,8 +5,10 @@ set -euo pipefail
 # directory. The socket stays in /tmp because macOS bind mounts may not support
 # Unix socket files. No TCP port or host database is used. Stop it before
 # removing its data.
-project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-postgres_dir="$project_dir/.postgres"
+# pg_ctl builds a shell command from -D and -l. Keep the project path out of
+# those arguments, including when the project is moved beneath shell syntax.
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+postgres_dir=.postgres
 data_dir="$postgres_dir/data"
 socket_dir=/tmp/devcontainer-postgres
 

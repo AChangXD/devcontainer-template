@@ -78,8 +78,8 @@ test('shell launcher runs the generator in Docker without invoking host runtimes
   assert.deepEqual(optionValues(args, ['--workdir', '-w']), ['/workspace']);
 
   const mounts = optionValues(args, ['--volume', '-v', '--mount']);
-  assert.equal(mounts.length, 5, 'Only the four generator inputs and destination should be mounted');
-  for (const source of ['bin', 'lib', 'templates', 'package.json']) {
+  assert.equal(mounts.length, 6, 'Only the five generator inputs and destination should be mounted');
+  for (const source of ['bin', 'lib', 'templates', 'package.json', '.codex/config.toml']) {
     const mount = mounts.find((value) => value.includes(`/opt/create-container/${source}`));
     assert.ok(mount, `Missing ${source} input mount`);
     assert.ok(mount.includes(join(repository, source)));
@@ -240,8 +240,8 @@ test('explicit Apple runtime uses supported flags and preserves mounted paths an
   assert.equal(args.includes('--runtime'), false, 'Launcher runtime option must not reach Apple CLI or generator');
 
   const volumes = optionValues(args, ['--volume', '-v']);
-  assert.equal(volumes.length, 5);
-  for (const source of ['bin', 'lib', 'templates', 'package.json']) {
+  assert.equal(volumes.length, 6);
+  for (const source of ['bin', 'lib', 'templates', 'package.json', '.codex/config.toml']) {
     assert.ok(volumes.includes(`${join(repository, source)}:/opt/create-container/${source}:ro`));
   }
   assert.ok(volumes.includes(`${cwd}:/workspace`) || volumes.includes(`${cwd}:/workspace:rw`));

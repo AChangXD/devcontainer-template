@@ -8,6 +8,7 @@
     "create-dev-container": "bin/create-container.js"
   },
   "files": [
+    ".codex/config.toml",
     "bin/",
     "lib/",
     "scripts/install.sh",

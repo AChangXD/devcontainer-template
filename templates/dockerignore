@@ -8,5 +8,6 @@ node_modules
 venv
 __pycache__
 .postgres
+/tmp/
 .codex
 .claude

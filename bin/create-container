@@ -97,6 +97,7 @@ if [[ "$runtime" == apple ]]; then
         --volume "$repository_dir/lib:/opt/create-container/lib:ro"
         --volume "$repository_dir/templates:/opt/create-container/templates:ro"
         --volume "$repository_dir/package.json:/opt/create-container/package.json:ro"
+        --volume "$repository_dir/.codex/config.toml:/opt/create-container/.codex/config.toml:ro"
         --volume "$project_parent:/workspace"
     )
 else
@@ -106,6 +107,7 @@ else
         --mount "$(bind_mount "$repository_dir/lib" /opt/create-container/lib ,readonly)"
         --mount "$(bind_mount "$repository_dir/templates" /opt/create-container/templates ,readonly)"
         --mount "$(bind_mount "$repository_dir/package.json" /opt/create-container/package.json ,readonly)"
+        --mount "$(bind_mount "$repository_dir/.codex/config.toml" /opt/create-container/.codex/config.toml ,readonly)"
         --mount "$(bind_mount "$project_parent" /workspace)"
     )
 fi

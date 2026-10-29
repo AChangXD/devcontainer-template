@@ -109,7 +109,7 @@ test('an explicit package selection is noninteractive and excludes other compone
   assert.ok(statSync(join(directory, 'scripts', 'postgres.sh')).mode & 0o111, 'Postgres helper must be executable');
 });
 
-test('Codex alone includes its Node runtime and portable project guidance', (t) => {
+test('Codex alone includes its Node runtime and the repository Codex configuration unchanged', (t) => {
   const cwd = workspace(t);
   successful(run(cwd, ['assistant', '--packages', 'codex']));
   const { directory, dockerfile } = readProject(cwd, 'assistant');
@@ -119,10 +119,8 @@ test('Codex alone includes its Node runtime and portable project guidance', (t) 
   assert.doesNotMatch(dockerfile, /python3-venv|postgresql-18|claude\.ai\/install\.sh/);
   assert.ok(existsSync(join(directory, 'AGENTS.md')));
   assert.ok(existsSync(join(directory, '.codex', 'AGENTS.md')));
-  const codexConfig = readFileSync(join(directory, '.codex', 'config.toml'), 'utf8');
-  assert.match(codexConfig, /on-request/);
-  assert.match(codexConfig, /workspace-write/);
-  assert.doesNotMatch(codexConfig, /danger-full-access|approval_policy\s*=\s*['"]never['"]|\/workspace|mcp_servers/);
+  const codexConfig = readFileSync(join(directory, '.codex', 'config.toml'));
+  assert.deepEqual(codexConfig, readFileSync(join(repository, '.codex', 'config.toml')));
   assert.deepEqual(readdirSync(join(directory, '.codex')).sort(), ['AGENTS.md', 'config.toml']);
   assert.equal(existsSync(join(directory, '.aws')), false);
 });
