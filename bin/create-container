@@ -1,0 +1,116 @@
+#!/bin/bash
+set -euo pipefail
+
+# Resolve npm-free installations made with symlinks. macOS has no readlink -f.
+launcher_path="${BASH_SOURCE[0]}"
+while [[ -L "$launcher_path" ]]; do
+    launcher_dir="$(cd -P -- "$(dirname "$launcher_path")" && pwd)"
+    launcher_path="$(readlink "$launcher_path")"
+    case "$launcher_path" in
+        /*) ;;
+        *) launcher_path="$launcher_dir/$launcher_path" ;;
+    esac
+done
+repository_dir="$(cd -P -- "$(dirname "$launcher_path")/.." && pwd)"
+project_parent="$(pwd -P)"
+
+runtime="${CREATE_CONTAINER_RUNTIME:-auto}"
+generator_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --runtime)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                printf '%s\n' '--runtime requires apple, docker, or auto.' >&2
+                exit 1
+            fi
+            runtime="$2"
+            shift 2
+            ;;
+        --runtime=*)
+            runtime="${1#--runtime=}"
+            shift
+            ;;
+        *)
+            generator_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+case "$runtime" in
+    auto)
+        if command -v docker >/dev/null 2>&1; then
+            runtime=docker
+        elif command -v container >/dev/null 2>&1; then
+            runtime=apple
+        else
+            printf 'Install and start Docker Desktop or Apple container, then try again.\n' >&2
+            exit 127
+        fi
+        ;;
+    apple|docker) ;;
+    *)
+        printf 'Unknown runtime: %s. Choose apple, docker, or auto.\n' "$runtime" >&2
+        exit 1
+        ;;
+esac
+
+runtime_command=docker
+if [[ "$runtime" == apple ]]; then
+    runtime_command=container
+fi
+if ! command -v "$runtime_command" >/dev/null 2>&1; then
+    printf 'Selected runtime command is unavailable: %s\n' "$runtime_command" >&2
+    exit 127
+fi
+
+# Docker --mount uses CSV. Quote the entire source field, including any commas
+# or quotes in a Mac folder name, without evaluating it as shell code.
+bind_mount() {
+    local mount_source="$1"
+    mount_source="${mount_source//\"/\"\"}"
+    printf 'type=bind,"source=%s",target=%s%s' "$mount_source" "$2" "${3:-}"
+}
+
+runtime_args=(run --rm -i)
+if [[ -t 0 && -t 1 ]]; then
+    runtime_args+=(-t)
+fi
+runtime_args+=(
+    --user "$(id -u):$(id -g)"
+    --read-only
+    --network none
+    --cap-drop ALL
+    --env "CREATE_CONTAINER_RUNTIME=$runtime"
+    --workdir /workspace
+)
+
+if [[ "$runtime" == apple ]]; then
+    # Apple 1.6.1 --mount neither parses CSV nor accepts file sources. Its
+    # --volume syntax supports both files and directories, separated by colons.
+    if [[ "$repository_dir" == *:* || "$project_parent" == *:* ]]; then
+        printf 'Apple container volume paths cannot contain a colon. Move the repository/project parent or select --runtime docker.\n' >&2
+        exit 1
+    fi
+    runtime_args+=(
+        --volume "$repository_dir/bin:/opt/create-container/bin:ro"
+        --volume "$repository_dir/lib:/opt/create-container/lib:ro"
+        --volume "$repository_dir/templates:/opt/create-container/templates:ro"
+        --volume "$repository_dir/package.json:/opt/create-container/package.json:ro"
+        --volume "$project_parent:/workspace"
+    )
+else
+    runtime_args+=(
+        --security-opt no-new-privileges
+        --mount "$(bind_mount "$repository_dir/bin" /opt/create-container/bin ,readonly)"
+        --mount "$(bind_mount "$repository_dir/lib" /opt/create-container/lib ,readonly)"
+        --mount "$(bind_mount "$repository_dir/templates" /opt/create-container/templates ,readonly)"
+        --mount "$(bind_mount "$repository_dir/package.json" /opt/create-container/package.json ,readonly)"
+        --mount "$(bind_mount "$project_parent" /workspace)"
+    )
+fi
+
+# The host runs only the container runtime; it pulls the image on first use.
+# This array expansion also works with zero arguments on macOS Bash 3.2.
+exec "$runtime_command" "${runtime_args[@]}" docker.io/library/node:22-bookworm-slim \
+    node /opt/create-container/bin/create-container.js ${generator_args[@]+"${generator_args[@]}"}

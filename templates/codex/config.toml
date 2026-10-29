@@ -1,0 +1,4 @@
+# Project defaults. Codex loads this file after you trust the project.
+# Choose a model in your personal ~/.codex/config.toml or with `codex --model`.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

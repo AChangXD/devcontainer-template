@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.postgres/
+
+# Keep project Codex settings and instructions; exclude local authentication/state.
+.codex/*
+!.codex/config.toml
+!.codex/AGENTS.md
+.claude/settings.local.json
