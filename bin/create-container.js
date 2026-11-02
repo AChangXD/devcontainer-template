@@ -17,7 +17,7 @@ const packageIds = choices.map(({ id }) => id);
 const help = `Usage: create-container [folder-name] [options]
        create-dev-container [folder-name] [options]
 
-Create a new folder with a Dockerfile and root .devcontainer.json.
+Create a new folder with a Dockerfile and .devcontainer/devcontainer.json.
 Without options, choose tools using arrows, space, and enter.
 All tools are selected by default. Existing folders are never overwritten.
 

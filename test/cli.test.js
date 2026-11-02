@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -39,10 +40,39 @@ function readProject(cwd, name) {
   const directory = join(cwd, name);
   return {
     directory,
-    config: JSON.parse(readFileSync(join(directory, '.devcontainer.json'), 'utf8')),
+    config: JSON.parse(readFileSync(join(directory, '.devcontainer', 'devcontainer.json'), 'utf8')),
     dockerfile: readFileSync(join(directory, 'Dockerfile'), 'utf8'),
   };
 }
+
+function assertSeccompProfile(directory, config) {
+  assert.deepEqual(config.runArgs, [
+    '--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-bwrap.json',
+  ]);
+  const profilePath = config.runArgs[0]
+    .slice('--security-opt=seccomp='.length)
+    .replace('${localWorkspaceFolder}', directory);
+  assert.equal(profilePath, join(directory, '.devcontainer', 'seccomp-bwrap.json'));
+  JSON.parse(readFileSync(profilePath, 'utf8'));
+
+  // Preserve the exact profile and license from maestro-ui commit 9a594511414368a091118152ebe1c11c47810987.
+  const sourceHashes = {
+    'seccomp-bwrap.json': 'fd603665301400dfa4f552ccd7cc4d355c37e3df625c6f60147d2d97d27a8cb5',
+    'seccomp-bwrap.LICENSE': 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30',
+  };
+  for (const [filename, expectedHash] of Object.entries(sourceHashes)) {
+    const filePath = join(dirname(profilePath), filename);
+    assert.ok(statSync(filePath).isFile());
+    const contents = readFileSync(filePath);
+    assert.deepEqual(contents, readFileSync(join(repository, 'templates', 'devcontainer', filename)));
+    assert.equal(createHash('sha256').update(contents).digest('hex'), expectedHash, filename);
+  }
+}
+
+test('repository dev container uses the pinned maestro-ui seccomp profile and license', () => {
+  const config = JSON.parse(readFileSync(join(repository, '.devcontainer', 'devcontainer.json'), 'utf8'));
+  assertSeccompProfile(repository, config);
+});
 
 test('help and version work without a name and do not create files', (t) => {
   const cwd = workspace(t);
@@ -59,16 +89,21 @@ test('help and version work without a name and do not create files', (t) => {
   assert.deepEqual(readdirSync(cwd), []);
 });
 
-test('--yes generates the named root configuration and all default components', (t) => {
+test('--yes generates the named configuration in .devcontainer and all default components', (t) => {
   const cwd = workspace(t);
   successful(run(cwd, ['my-project', '--yes']));
   const { directory, config, dockerfile } = readProject(cwd, 'my-project');
 
   assert.equal(config.name, 'my-project');
-  assert.deepEqual(config.build, { dockerfile: 'Dockerfile', context: '.' });
+  const configDirectory = join(directory, '.devcontainer');
+  assert.ok(statSync(configDirectory).isDirectory());
+  assert.ok(statSync(join(configDirectory, 'devcontainer.json')).isFile());
+  assert.equal(resolve(configDirectory, config.build.dockerfile), join(directory, 'Dockerfile'));
+  assert.equal(resolve(configDirectory, config.build.context), directory);
   assert.equal(config.remoteUser, 'vscode');
+  assertSeccompProfile(directory, config);
   assert.equal(config.workspaceFolder, '/workspace');
-  assert.equal(existsSync(join(directory, '.devcontainer')), false);
+  assert.equal(existsSync(join(directory, '.devcontainer.json')), false);
   assert.match(dockerfile, /python3-venv/);
   assert.match(dockerfile, /nvm install/);
   assert.match(dockerfile, /postgresql-18/);
@@ -86,10 +121,12 @@ test('-y accepts ordinary project name punctuation and retains the exact name', 
 });
 
 test('--packages none creates a base container without optional configuration', (t) => {
-  const cwd = workspace(t);
+  const cwd = join(workspace(t), 'projects with spaces');
+  mkdirSync(cwd);
   successful(run(cwd, ['minimal', '--packages', 'none']));
-  const { directory, dockerfile } = readProject(cwd, 'minimal');
+  const { directory, config, dockerfile } = readProject(cwd, 'minimal');
 
+  assertSeccompProfile(directory, config);
   assert.match(dockerfile, /^FROM\s+/m);
   assert.doesNotMatch(dockerfile, /python3-venv|nvm install|postgresql-18|claude\.ai\/install\.sh|@openai\/codex/);
   assert.equal(existsSync(join(directory, '.codex')), false);

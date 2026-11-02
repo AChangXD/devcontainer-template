@@ -2,12 +2,16 @@
 set -euo pipefail
 
 usage() {
-    printf 'Usage: bash scripts/install.sh [--bin-dir PATH]\n'
+    printf 'Usage: bash scripts/install.sh [--bin-dir PATH] [--shell-config PATH] [--no-path-update]\n'
     printf 'Install create-container and create-dev-container (Docker or Apple container launcher).\n'
     printf 'Default directory: ~/.local/bin. No Node, npm, Python, or sudo needed.\n'
+    printf 'Adds the command directory to PATH in ${ZDOTDIR:-$HOME}/.zshrc.\n'
+    printf 'Use --shell-config for another shell startup file, or --no-path-update to skip it.\n'
 }
 
 install_dir="$HOME/.local/bin"
+shell_config="${ZDOTDIR:-$HOME}/.zshrc"
+update_path=true
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bin-dir)
@@ -17,6 +21,18 @@ while [[ $# -gt 0 ]]; do
             fi
             install_dir="$2"
             shift 2
+            ;;
+        --shell-config)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                printf '%s\n' '--shell-config requires a file path.' >&2
+                exit 1
+            fi
+            shell_config="$2"
+            shift 2
+            ;;
+        --no-path-update)
+            update_path=false
+            shift
             ;;
         -h|--help)
             usage
@@ -56,6 +72,35 @@ for command_name in create-container create-dev-container; do
     fi
 done
 
+if [[ "$update_path" == true ]]; then
+    case "$install_dir" in
+        *:*)
+            printf 'Cannot add a directory containing a colon to PATH: %s\n' "$install_dir" >&2
+            exit 1
+            ;;
+    esac
+    case "$shell_config" in
+        /*) ;;
+        *) shell_config="$PWD/$shell_config" ;;
+    esac
+    if [[ -e "$shell_config" && ! -f "$shell_config" ]]; then
+        printf 'Shell configuration is not a regular file: %s\n' "$shell_config" >&2
+        exit 1
+    fi
+    # Quote paths as shell literals; never interpret their contents as code.
+    printf -v quoted_install_dir '%q' "$install_dir"
+    path_line="case \":\$PATH:\" in *:${quoted_install_dir}:*) ;; *) export PATH=${quoted_install_dir}:\"\$PATH\" ;; esac"
+    # Check the file even if this terminal already has the directory in PATH:
+    # a temporary export does not configure future shells.
+    if [[ -f "$shell_config" ]] && grep -Fqx "$path_line" "$shell_config"; then
+        printf 'PATH is already configured in %s\n' "$shell_config"
+    else
+        mkdir -p "$(dirname "$shell_config")"
+        printf '\n# create-container command path\n%s\n' "$path_line" >> "$shell_config"
+        printf 'Added persistent PATH configuration to %s\n' "$shell_config"
+    fi
+fi
+
 for command_name in create-container create-dev-container; do
     destination="$install_dir/$command_name"
     if [[ ! -L "$destination" ]]; then
@@ -65,12 +110,12 @@ done
 
 printf 'Installed create-container and create-dev-container in %s\n' "$install_dir"
 printf 'Keep this repository at %s; the commands link to it.\n' "$repository_dir"
-case ":$PATH:" in
-    *":$install_dir:"*) ;;
-    *)
-        printf '\nAdd this line to ~/.zshrc and run it in your current terminal:\n'
-        printf '  export PATH=%q:"$PATH"\n' "$install_dir"
-        ;;
-esac
+if [[ "$update_path" == true ]]; then
+    printf '\nOpen a new terminal, or apply this once in your current terminal:\n'
+    printf '  source %q\n' "$shell_config"
+else
+    printf '\nShell configuration unchanged. To use this terminal:\n'
+    printf '  export PATH=%q:"$PATH"\n' "$install_dir"
+fi
 printf '\nStart Docker Desktop or run container system start, then run: create-container my-app\n'
 printf 'Select Apple explicitly with: create-container --runtime apple my-app\n'

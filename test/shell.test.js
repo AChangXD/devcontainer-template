@@ -113,8 +113,8 @@ test('installer creates both command links and can be run again without npm', (t
   const binDirectory = join(directory, 'user bin with spaces');
   const docker = mockDocker(directory);
 
-  successful(run(installer, ['--bin-dir', binDirectory], directory, docker.environment));
-  successful(run(installer, ['--bin-dir', binDirectory], directory, docker.environment));
+  successful(run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory, docker.environment));
+  successful(run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory, docker.environment));
   for (const name of ['create-container', 'create-dev-container']) {
     const command = join(binDirectory, name);
     assert.ok(lstatSync(command).isSymbolicLink());
@@ -144,7 +144,7 @@ test('installer refuses unrelated existing commands before installing either ali
   const collision = join(binDirectory, 'create-dev-container');
   writeFileSync(collision, 'keep the existing command');
 
-  const result = run(installer, ['--bin-dir', binDirectory], directory);
+  const result = run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory);
   assert.notEqual(result.status, 0, result.output);
   assert.equal(readFileSync(collision, 'utf8'), 'keep the existing command');
   assert.equal(existsSync(join(binDirectory, 'create-container')), false);
@@ -158,7 +158,7 @@ test('installer preserves unrelated dangling symlinks', (t) => {
   const collision = join(binDirectory, 'create-container');
   symlinkSync(join(directory, 'missing'), collision);
 
-  const result = run(installer, ['--bin-dir', binDirectory], directory);
+  const result = run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory);
   assert.notEqual(result.status, 0, result.output);
   assert.ok(lstatSync(collision).isSymbolicLink());
   assert.equal(existsSync(join(binDirectory, 'create-dev-container')), false);
@@ -167,11 +167,93 @@ test('installer preserves unrelated dangling symlinks', (t) => {
 test('installer help and invalid arguments do not create an installation', (t) => {
   const directory = workspace(t);
   successful(run(installer, ['--help'], directory));
-  for (const args of [['--unknown'], ['--bin-dir'], ['--bin-dir', '']]) {
+  for (const args of [['--unknown'], ['--bin-dir'], ['--bin-dir', ''], ['--shell-config'], ['--shell-config', '']]) {
     const result = run(installer, args, directory);
     assert.notEqual(result.status, 0, result.output);
   }
   assert.deepEqual(readdirSync(directory), []);
+});
+
+test('installer persists PATH once and a fresh shell can find both commands', (t) => {
+  const directory = workspace(t);
+  const binDirectory = join(directory, 'user bin');
+  const config = join(directory, 'shell configuration');
+  const original = '# Keep existing shell preferences\nexport PROJECT_PREFERENCE=keep';
+  writeFileSync(config, original);
+
+  successful(run(installer, ['--bin-dir', binDirectory, '--shell-config', config], directory));
+  const installed = readFileSync(config, 'utf8');
+  assert.ok(installed.startsWith(original), 'Existing shell configuration must be preserved');
+  assert.notEqual(installed, original);
+  successful(run(installer, ['--bin-dir', binDirectory, '--shell-config', config], directory, {
+    PATH: `${binDirectory}:${process.env.PATH}`,
+  }));
+  assert.equal(readFileSync(config, 'utf8'), installed, 'Reinstalling must not duplicate the PATH setup');
+
+  const freshShell = run('-c', [
+    'source "$1"; source "$1"; command -v create-container; command -v create-dev-container; printf "%s\\n" "$PROJECT_PREFERENCE" "$PATH"',
+    'check-path', config,
+  ], directory, { PATH: '/usr/bin:/bin' });
+  successful(freshShell);
+  const [command, alias, preference, path] = freshShell.stdout.trimEnd().split('\n');
+  assert.equal(command, join(binDirectory, 'create-container'));
+  assert.equal(alias, join(binDirectory, 'create-dev-container'));
+  assert.equal(preference, 'keep');
+  assert.equal(path.split(':').filter((entry) => entry === binDirectory).length, 1);
+});
+
+test('installer quotes shell syntax in the installation path literally', (t) => {
+  const directory = workspace(t);
+  const binDirectory = join(directory, 'bin $(touch RC_PATH_EXECUTED) `touch RC_BACKTICK_EXECUTED` "quotes" \'single\'');
+  const config = join(directory, 'shellrc');
+  successful(run(installer, ['--bin-dir', binDirectory, '--shell-config', config], directory));
+
+  const freshShell = run('-c', ['source "$1"; command -v create-container', 'check-path', config], directory, { PATH: '/usr/bin:/bin' });
+  successful(freshShell);
+  assert.equal(freshShell.stdout.trimEnd(), join(binDirectory, 'create-container'));
+  assert.equal(existsSync(join(directory, 'RC_PATH_EXECUTED')), false);
+  assert.equal(existsSync(join(directory, 'RC_BACKTICK_EXECUTED')), false);
+});
+
+test('installer honors ZDOTDIR and makes commands available in a fresh zsh session', (t) => {
+  const directory = workspace(t);
+  const binDirectory = join(directory, 'bin');
+  const configDirectory = join(directory, 'zsh config');
+  mkdirSync(configDirectory);
+  successful(run(installer, ['--bin-dir', binDirectory], directory, { ZDOTDIR: configDirectory }));
+
+  const config = join(configDirectory, '.zshrc');
+  assert.ok(existsSync(config));
+  const zsh = ['/bin/zsh', '/usr/bin/zsh'].find(existsSync);
+  let freshShell;
+  if (zsh) {
+    const result = spawnSync(zsh, ['-d', '-i', '-c', 'command -v create-container'], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: { ...process.env, ZDOTDIR: configDirectory, PATH: '/usr/bin:/bin' },
+    });
+    assert.ifError(result.error);
+    freshShell = { ...result, output: result.stdout + result.stderr };
+  } else {
+    t.diagnostic('zsh is unavailable; checking the generated startup syntax with Bash');
+    freshShell = run('-c', ['source "$1"; command -v create-container', 'check-path', config], directory, { PATH: '/usr/bin:/bin' });
+  }
+  successful(freshShell);
+  assert.equal(freshShell.stdout.trimEnd(), join(binDirectory, 'create-container'));
+});
+
+test('--no-path-update installs links while leaving shell configuration untouched', (t) => {
+  const directory = workspace(t);
+  const binDirectory = join(directory, 'bin');
+  const config = join(directory, 'shellrc');
+  writeFileSync(config, '# existing config\n');
+  successful(run(installer, ['--bin-dir', binDirectory, '--shell-config', config, '--no-path-update'], directory));
+  assert.equal(readFileSync(config, 'utf8'), '# existing config\n');
+  assert.ok(lstatSync(join(binDirectory, 'create-container')).isSymbolicLink());
+  const absentConfig = join(directory, 'absent-shellrc');
+  successful(run(installer, ['--bin-dir', binDirectory, '--shell-config', absentConfig, '--no-path-update'], directory));
+  assert.equal(existsSync(absentConfig), false);
 });
 
 test('launcher explains when Docker is unavailable', (t) => {

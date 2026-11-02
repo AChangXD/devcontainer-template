@@ -15,10 +15,19 @@ mkdir -p ~/tools
 git clone https://github.com/AChangXD/docker-python-scripting.git ~/tools/create-container
 cd ~/tools/create-container
 bash scripts/install.sh
-export PATH="$HOME/.local/bin:$PATH"
+source ~/.zshrc
 ```
 
-The installer links `create-container` and its alias `create-dev-container` into `~/.local/bin`. Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` once to make them available in new terminals. It does not need `sudo` or modify your shell configuration. Keep the repository in place because the commands point to its launcher.
+The installer links `create-container` and its alias `create-dev-container` into `~/.local/bin` and adds that directory to your PATH in `~/.zshrc`. It preserves existing shell configuration and avoids duplicate entries when rerun. If you use `ZDOTDIR`, it updates `$ZDOTDIR/.zshrc` instead and prints the file to reload. It does not need `sudo`. Keep the repository in place because the commands point to its launcher.
+
+Reload the printed shell configuration once, or open a new terminal. The installer cannot change the environment of the terminal that launched it; future terminals load the saved PATH automatically. If you installed an earlier version and still need to export PATH manually, rerun the updated installer and reload your shell configuration.
+
+To choose a different shell configuration file or manage PATH yourself:
+
+```bash
+bash scripts/install.sh --shell-config "$HOME/.bash_profile"
+bash scripts/install.sh --no-path-update
+```
 
 Create a project from wherever you keep your work:
 
@@ -100,7 +109,7 @@ Enable this VS Code user setting:
 "dev.containers.experimentalAppleContainerSupport": true
 ```
 
-Then run **Dev Containers: Attach to Running Apple Container...**, select `my-app-dev`, and open `/workspace`. Microsoft introduced this as [experimental attach support](https://github.com/microsoft/vscode-remote-release/issues/11012). It does not provide the normal Docker **Reopen in Container** workflow: do not expect `.devcontainer.json` lifecycle commands, extensions, or settings to be applied automatically. Keep those files for the Docker workflow and configure extensions manually when attaching with Apple.
+Then run **Dev Containers: Attach to Running Apple Container...**, select `my-app-dev`, and open `/workspace`. Microsoft introduced this as [experimental attach support](https://github.com/microsoft/vscode-remote-release/issues/11012). It does not provide the normal Docker **Reopen in Container** workflow: do not expect `.devcontainer/devcontainer.json` lifecycle commands, extensions, or settings to be applied automatically. Keep those files for the Docker workflow and configure extensions manually when attaching with Apple.
 
 When finished, run `container stop my-app-dev` and `container rm my-app-dev` on your Mac.
 
@@ -110,7 +119,10 @@ With all default options selected:
 
 ```text
 my-app/
-├── .devcontainer.json
+├── .devcontainer/
+│   ├── devcontainer.json
+│   ├── seccomp-bwrap.json
+│   └── seccomp-bwrap.LICENSE
 ├── Dockerfile
 ├── .dockerignore
 ├── .gitignore
@@ -123,7 +135,9 @@ my-app/
     └── postgres.sh
 ```
 
-The configuration lives at the project root as `.devcontainer.json`, a [location supported by VS Code](https://code.visualstudio.com/docs/devcontainers/create-dev-container). Its `name` is `my-app`, and it builds the adjacent `Dockerfile`. There is no generated `.devcontainer` directory.
+The configuration lives inside the `.devcontainer/` folder as `devcontainer.json`. Its `name` is `my-app`, and it builds the project-root `Dockerfile` using `"dockerfile": "../Dockerfile"` and `"context": ".."`, relative to the configuration folder.
+
+Every generated project, including `--packages none`, includes the exact custom seccomp profile and accompanying license from [`maestro-ui` commit `9a59451`](https://github.com/AChangXD/maestro-ui/commit/9a594511414368a091118152ebe1c11c47810987). The files are copied unchanged from `templates/devcontainer/`. Its `runArgs` contains only `--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-bwrap.json`, so Docker reads the profile from the generated project on your host. This repository's own dev container uses the same profile. Rebuild an existing dev container after updating its configuration and profile.
 
 The Dockerfile contains the selected installation steps. Codex configuration and instruction files are generated only when Codex is selected; authentication files are never copied. The PostgreSQL helper is included only when PostgreSQL is selected. Commit these generated files with your new project so its environment is version controlled.
 

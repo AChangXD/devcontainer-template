@@ -5,9 +5,7 @@
     "context": ".."
   },
   "runArgs": [
-    "--security-opt=seccomp=unconfined",
-    "--security-opt=apparmor=unconfined",
-    "--cap-add=SYS_ADMIN"
+    "--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-bwrap.json"
   ],
   "remoteUser": "vscode",
   "workspaceFolder": "/workspace",
