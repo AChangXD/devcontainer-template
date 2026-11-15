@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const launcher = join(repository, 'bin', 'create-container');
+const initLauncher = join(repository, 'bin', 'init-container');
 const installer = join(repository, 'scripts', 'install.sh');
 
 function workspace(t) {
@@ -76,6 +77,7 @@ test('shell launcher runs the generator in Docker without invoking host runtimes
   assert.ok(optionValues(args, ['--security-opt']).includes('no-new-privileges'));
   assert.match(optionValues(args, ['--user', '-u'])[0], /^\d+:\d+$/);
   assert.deepEqual(optionValues(args, ['--workdir', '-w']), ['/workspace']);
+  assert.equal(optionValues(args, ['--env', '-e']).some((value) => value.startsWith('CREATE_CONTAINER_PROJECT_NAME=')), false);
 
   const mounts = optionValues(args, ['--volume', '-v', '--mount']);
   assert.equal(mounts.length, 6, 'Only the five generator inputs and destination should be mounted');
@@ -108,19 +110,23 @@ test('shell launcher preserves arguments literally and propagates the Docker exi
   assert.equal(existsSync(sentinel), false);
 });
 
-test('installer creates both command links and can be run again without npm', (t) => {
+test('installer creates all three command links and can be run again without npm', (t) => {
   const directory = workspace(t);
   const binDirectory = join(directory, 'user bin with spaces');
   const docker = mockDocker(directory);
 
   successful(run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory, docker.environment));
   successful(run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory, docker.environment));
-  for (const name of ['create-container', 'create-dev-container']) {
+  for (const name of ['create-container', 'create-dev-container', 'init-container']) {
     const command = join(binDirectory, name);
     assert.ok(lstatSync(command).isSymbolicLink());
     assert.equal(realpathSync(command), launcher);
-    successful(run(command, ['my-project', '--yes'], directory, docker.environment));
-    assert.deepEqual(docker.args().slice(-2), ['my-project', '--yes']);
+    const args = name === 'init-container' ? ['--yes'] : ['my-project', '--yes'];
+    const entrypoint = name === 'init-container' ? 'init-container.js' : 'create-container.js';
+    successful(run(command, args, directory, docker.environment));
+    const runtimeArgs = docker.args();
+    const imageIndex = runtimeArgs.indexOf('docker.io/library/node:22-bookworm-slim');
+    assert.deepEqual(runtimeArgs.slice(imageIndex + 1), ['node', `/opt/create-container/bin/${entrypoint}`, ...args]);
   }
 });
 
@@ -128,28 +134,38 @@ test('launcher resolves a relative symlink installed in a path with spaces', (t)
   const directory = workspace(t);
   const binDirectory = join(directory, 'relative links');
   mkdirSync(binDirectory);
-  const command = join(binDirectory, 'create-container');
-  symlinkSync(relative(binDirectory, launcher), command);
   const docker = mockDocker(directory);
 
-  successful(run(command, ['project', '--packages', 'none'], directory, docker.environment));
-  const mounts = optionValues(docker.args(), ['--volume', '-v', '--mount']);
-  assert.ok(mounts.some((value) => value.includes(join(repository, 'templates'))));
+  for (const [name, source, args] of [
+    ['create-container', launcher, ['project', '--packages', 'none']],
+    ['init-container', initLauncher, ['--packages', 'none']],
+  ]) {
+    const command = join(binDirectory, name);
+    symlinkSync(relative(binDirectory, source), command);
+    successful(run(command, args, directory, docker.environment));
+    const runtimeArgs = docker.args();
+    const mounts = optionValues(runtimeArgs, ['--volume', '-v', '--mount']);
+    assert.ok(mounts.some((value) => value.includes(join(repository, 'templates'))));
+    assert.ok(runtimeArgs.includes(`/opt/create-container/bin/${name}.js`));
+  }
 });
 
-test('installer refuses unrelated existing commands before installing either alias', (t) => {
-  const directory = workspace(t);
-  const binDirectory = join(directory, 'bin');
-  mkdirSync(binDirectory);
-  const collision = join(binDirectory, 'create-dev-container');
-  writeFileSync(collision, 'keep the existing command');
+for (const name of ['create-container', 'create-dev-container', 'init-container']) {
+  test(`installer refuses an existing ${name} before installing any command`, (t) => {
+    const directory = workspace(t);
+    const binDirectory = join(directory, 'bin');
+    const config = join(directory, 'shellrc');
+    mkdirSync(binDirectory);
+    const collision = join(binDirectory, name);
+    writeFileSync(collision, 'keep the existing command');
 
-  const result = run(installer, ['--no-path-update', '--bin-dir', binDirectory], directory);
-  assert.notEqual(result.status, 0, result.output);
-  assert.equal(readFileSync(collision, 'utf8'), 'keep the existing command');
-  assert.equal(existsSync(join(binDirectory, 'create-container')), false);
-  assert.deepEqual(readdirSync(binDirectory), ['create-dev-container']);
-});
+    const result = run(installer, ['--bin-dir', binDirectory, '--shell-config', config], directory);
+    assert.notEqual(result.status, 0, result.output);
+    assert.equal(readFileSync(collision, 'utf8'), 'keep the existing command');
+    assert.deepEqual(readdirSync(binDirectory), [name]);
+    assert.equal(existsSync(config), false, 'Collision preflight must precede PATH configuration');
+  });
+}
 
 test('installer preserves unrelated dangling symlinks', (t) => {
   const directory = workspace(t);
@@ -162,6 +178,7 @@ test('installer preserves unrelated dangling symlinks', (t) => {
   assert.notEqual(result.status, 0, result.output);
   assert.ok(lstatSync(collision).isSymbolicLink());
   assert.equal(existsSync(join(binDirectory, 'create-dev-container')), false);
+  assert.equal(existsSync(join(binDirectory, 'init-container')), false);
 });
 
 test('installer help and invalid arguments do not create an installation', (t) => {
@@ -174,7 +191,7 @@ test('installer help and invalid arguments do not create an installation', (t) =
   assert.deepEqual(readdirSync(directory), []);
 });
 
-test('installer persists PATH once and a fresh shell can find both commands', (t) => {
+test('installer persists PATH once and a fresh shell can find all three commands', (t) => {
   const directory = workspace(t);
   const binDirectory = join(directory, 'user bin');
   const config = join(directory, 'shell configuration');
@@ -191,13 +208,14 @@ test('installer persists PATH once and a fresh shell can find both commands', (t
   assert.equal(readFileSync(config, 'utf8'), installed, 'Reinstalling must not duplicate the PATH setup');
 
   const freshShell = run('-c', [
-    'source "$1"; source "$1"; command -v create-container; command -v create-dev-container; printf "%s\\n" "$PROJECT_PREFERENCE" "$PATH"',
+    'source "$1"; source "$1"; command -v create-container; command -v create-dev-container; command -v init-container; printf "%s\\n" "$PROJECT_PREFERENCE" "$PATH"',
     'check-path', config,
   ], directory, { PATH: '/usr/bin:/bin' });
   successful(freshShell);
-  const [command, alias, preference, path] = freshShell.stdout.trimEnd().split('\n');
+  const [command, alias, init, preference, path] = freshShell.stdout.trimEnd().split('\n');
   assert.equal(command, join(binDirectory, 'create-container'));
   assert.equal(alias, join(binDirectory, 'create-dev-container'));
+  assert.equal(init, join(binDirectory, 'init-container'));
   assert.equal(preference, 'keep');
   assert.equal(path.split(':').filter((entry) => entry === binDirectory).length, 1);
 });
@@ -295,6 +313,41 @@ exit "\${RUNTIME_TEST_STATUS:-0}"
     engine: () => readFileSync(engineFile, 'utf8'),
     args: () => readFileSync(argsFile, 'utf8').split('\0').slice(0, -1),
   };
+}
+
+for (const [runtime, engine] of [['docker', 'docker'], ['apple', 'container']]) {
+  test(`init-container uses the current folder and preserves its host name with ${runtime}`, (t) => {
+    const directory = workspace(t);
+    const projectName = 'Existing project, "quoted" $(touch UNEXPECTED)';
+    const cwd = join(directory, projectName);
+    mkdirSync(cwd);
+    writeFileSync(join(cwd, 'existing.txt'), 'keep existing project files');
+    const runtimes = mockRuntimes(directory, ['docker', 'container']);
+    const input = ['--packages', 'python,node'];
+    successful(run(initLauncher, [...input, '--runtime', runtime], cwd, runtimes.environment));
+
+    assert.equal(runtimes.engine(), engine);
+    const args = runtimes.args();
+    assert.deepEqual(optionValues(args, ['--workdir', '-w']), ['/workspace']);
+    assert.deepEqual(optionValues(args, ['--env', '-e']), [
+      `CREATE_CONTAINER_RUNTIME=${runtime}`,
+      `CREATE_CONTAINER_PROJECT_NAME=${projectName}`,
+    ]);
+    const volumes = optionValues(args, ['--mount', '--volume', '-v']);
+    const writableVolumes = volumes.filter((value) => !/:ro$|readonly|read-only/.test(value));
+    assert.deepEqual(writableVolumes, [runtime === 'apple'
+      ? `${cwd}:/workspace`
+      : `type=bind,"source=${cwd.replaceAll('"', '""')}",target=/workspace`]);
+    const imageIndex = args.indexOf('docker.io/library/node:22-bookworm-slim');
+    assert.deepEqual(args.slice(imageIndex + 1), ['node', '/opt/create-container/bin/init-container.js', ...input]);
+    assert.deepEqual(readdirSync(cwd), ['existing.txt']);
+    assert.equal(readFileSync(join(cwd, 'existing.txt'), 'utf8'), 'keep existing project files');
+
+    // Interactive init has no project argument and no generator flags.
+    successful(run(initLauncher, [`--runtime=${runtime}`], cwd, runtimes.environment));
+    assert.deepEqual(runtimes.args().slice(-2), ['node', '/opt/create-container/bin/init-container.js']);
+    assert.equal(existsSync(join(cwd, 'UNEXPECTED')), false);
+  });
 }
 
 test('explicit Apple runtime uses supported flags and preserves mounted paths and arguments', (t) => {

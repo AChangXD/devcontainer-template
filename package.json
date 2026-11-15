@@ -1,11 +1,12 @@
 {
   "name": "@achangxd/create-container",
   "version": "0.1.0",
-  "description": "Create a named dev container with an interactive tool picker",
+  "description": "Create or initialize a dev container with an interactive tool picker",
   "type": "module",
   "bin": {
     "create-container": "bin/create-container.js",
-    "create-dev-container": "bin/create-container.js"
+    "create-dev-container": "bin/create-container.js",
+    "init-container": "bin/init-container.js"
   },
   "files": [
     ".codex/config.toml",

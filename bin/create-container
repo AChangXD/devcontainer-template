@@ -3,6 +3,10 @@ set -euo pipefail
 
 # Resolve npm-free installations made with symlinks. macOS has no readlink -f.
 launcher_path="${BASH_SOURCE[0]}"
+generator_script=create-container.js
+if [[ "${launcher_path##*/}" == init-container ]]; then
+    generator_script=init-container.js
+fi
 while [[ -L "$launcher_path" ]]; do
     launcher_dir="$(cd -P -- "$(dirname "$launcher_path")" && pwd)"
     launcher_path="$(readlink "$launcher_path")"
@@ -84,6 +88,10 @@ runtime_args+=(
     --env "CREATE_CONTAINER_RUNTIME=$runtime"
     --workdir /workspace
 )
+if [[ "$generator_script" == init-container.js ]]; then
+    # The host directory is mounted as /workspace, so preserve its actual name.
+    runtime_args+=(--env "CREATE_CONTAINER_PROJECT_NAME=${project_parent##*/}")
+fi
 
 if [[ "$runtime" == apple ]]; then
     # Apple 1.6.1 --mount neither parses CSV nor accepts file sources. Its
@@ -115,4 +123,4 @@ fi
 # The host runs only the container runtime; it pulls the image on first use.
 # This array expansion also works with zero arguments on macOS Bash 3.2.
 exec "$runtime_command" "${runtime_args[@]}" docker.io/library/node:22-bookworm-slim \
-    node /opt/create-container/bin/create-container.js ${generator_args[@]+"${generator_args[@]}"}
+    node "/opt/create-container/bin/$generator_script" ${generator_args[@]+"${generator_args[@]}"}

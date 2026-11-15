@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     printf 'Usage: bash scripts/install.sh [--bin-dir PATH] [--shell-config PATH] [--no-path-update]\n'
-    printf 'Install create-container and create-dev-container (Docker or Apple container launcher).\n'
+    printf 'Install create-container, create-dev-container, and init-container (Docker or Apple container launcher).\n'
     printf 'Default directory: ~/.local/bin. No Node, npm, Python, or sudo needed.\n'
     printf 'Adds the command directory to PATH in ${ZDOTDIR:-$HOME}/.zshrc.\n'
     printf 'Use --shell-config for another shell startup file, or --no-path-update to skip it.\n'
@@ -60,8 +60,8 @@ esac
 mkdir -p "$install_dir"
 install_dir="$(cd -P -- "$install_dir" && pwd)"
 
-# Check both names before writing either link. Existing unrelated commands stay.
-for command_name in create-container create-dev-container; do
+# Check all names before writing any links. Existing unrelated commands stay.
+for command_name in create-container create-dev-container init-container; do
     destination="$install_dir/$command_name"
     if [[ -e "$destination" || -L "$destination" ]]; then
         if [[ -L "$destination" && "$(readlink "$destination")" == "$launcher" ]]; then
@@ -101,14 +101,14 @@ if [[ "$update_path" == true ]]; then
     fi
 fi
 
-for command_name in create-container create-dev-container; do
+for command_name in create-container create-dev-container init-container; do
     destination="$install_dir/$command_name"
     if [[ ! -L "$destination" ]]; then
         ln -s "$launcher" "$destination"
     fi
 done
 
-printf 'Installed create-container and create-dev-container in %s\n' "$install_dir"
+printf 'Installed create-container, create-dev-container, and init-container in %s\n' "$install_dir"
 printf 'Keep this repository at %s; the commands link to it.\n' "$repository_dir"
 if [[ "$update_path" == true ]]; then
     printf '\nOpen a new terminal, or apply this once in your current terminal:\n'
@@ -119,3 +119,4 @@ else
 fi
 printf '\nStart Docker Desktop or run container system start, then run: create-container my-app\n'
 printf 'Select Apple explicitly with: create-container --runtime apple my-app\n'
+printf 'Set up an existing project: cd /path/to/project && init-container\n'

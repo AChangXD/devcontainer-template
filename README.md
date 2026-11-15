@@ -1,6 +1,6 @@
 # create-container
 
-Create a named project folder with a ready-to-build VS Code development container. Choose Python, Node.js, PostgreSQL, Claude Code, and Codex in the terminal; all five are selected by default.
+Create a named project folder with a ready-to-build VS Code development container, or add the setup to an existing folder with `init-container`. Choose Python, Node.js, PostgreSQL, Claude Code, and Codex in the terminal; all five are selected by default.
 
 The generator runs inside a disposable container using Docker or Apple's `container` CLI. Your Mac only runs a small Bash launcher: no local Node.js, npm, or Python installation is needed. Build the generated Dockerfile with your chosen runtime to install the tools you selected.
 
@@ -18,7 +18,7 @@ bash scripts/install.sh
 source ~/.zshrc
 ```
 
-The installer links `create-container` and its alias `create-dev-container` into `~/.local/bin` and adds that directory to your PATH in `~/.zshrc`. It preserves existing shell configuration and avoids duplicate entries when rerun. If you use `ZDOTDIR`, it updates `$ZDOTDIR/.zshrc` instead and prints the file to reload. It does not need `sudo`. Keep the repository in place because the commands point to its launcher.
+The installer links `create-container`, its alias `create-dev-container`, and `init-container` into `~/.local/bin` and adds that directory to your PATH in `~/.zshrc`. It preserves existing shell configuration and avoids duplicate entries when rerun. If you use `ZDOTDIR`, it updates `$ZDOTDIR/.zshrc` instead and prints the file to reload. It does not need `sudo`. Keep the repository in place because the commands point to its launchers. If you installed an earlier version, rerun `bash scripts/install.sh` to add the `init-container` command.
 
 Reload the printed shell configuration once, or open a new terminal. The installer cannot change the environment of the terminal that launched it; future terminals load the saved PATH automatically. If you installed an earlier version and still need to export PATH manually, rerun the updated installer and reload your shell configuration.
 
@@ -39,6 +39,15 @@ create-container my-app
 
 Use the arrow keys to move, Space to select or deselect packages, `a` to toggle all, and Enter to confirm. Run `create-container` without a name to enter it at a prompt. The name becomes both the new directory name and the dev container's display name.
 
+To add the setup to an existing project, change into its directory first:
+
+```bash
+cd ~/projects/existing-app
+init-container
+```
+
+`init-container` uses the same package picker and creates missing setup files in the current folder. It takes no project name or path. Existing files are preserved and reported as skipped, including files inside `.devcontainer/` and `.codex/`; missing files in those directories are still added. Conflicting directory paths and symlink parents are rejected before files are written.
+
 The selected runtime downloads the Node 22 image on the first run and reuses its cached copy afterward. The launcher runs the generator in that container and removes the container when it exits. Its source files are mounted read-only, while your current directory is mounted for writing the new project. With Docker, use a local context: [bind mounts](https://docs.docker.com/engine/storage/bind-mounts/) cannot mount your Mac's folders into a remote Docker daemon.
 
 With Docker, open the generated folder in VS Code and run **Dev Containers: Reopen in Container** from the Command Palette. To use `code my-app` from Terminal, first install VS Code's `code` command on your PATH.
@@ -53,7 +62,12 @@ create-container my-app --packages python,node  # Explicit selection, no checkli
 create-container my-app --packages none         # Base development container
 create-container --runtime apple my-app         # Use Apple's container CLI
 create-container --runtime docker my-app        # Use Docker
+init-container                                 # Set up the current folder
+init-container --yes                           # All five default packages
+init-container --packages python,node           # Explicit selection
+init-container --runtime apple --packages none  # Base setup using Apple
 create-container --help
+init-container --help
 create-container --version
 ```
 
@@ -71,7 +85,7 @@ Use `--packages` with a comma-separated list of these IDs:
 
 Codex also installs Node.js inside the development container as its runtime dependency when `node` is not selected. Claude Code uses its native installer independently of the Node.js selection. Neither choice installs a runtime on your Mac. Sign in to the AI tools from inside the container after it builds.
 
-The destination must be a new folder; the generator refuses to overwrite an existing path. Run from the desired parent directory and use a name starting with a letter or number, followed by letters, numbers, dots, underscores, or hyphens. For scripts and other noninteractive use, supply a name and either `--yes` or `--packages`.
+For `create-container` and `create-dev-container`, the destination must be a new folder; the generator refuses to overwrite an existing path. Run from the desired parent directory and use a name starting with a letter or number, followed by letters, numbers, dots, underscores, or hyphens. For scripts and other noninteractive use, supply a name and either `--yes` or `--packages`. For an existing folder, run `init-container --yes` or `init-container --packages …` from inside it.
 
 ## Using Apple container
 
@@ -139,7 +153,7 @@ The configuration lives inside the `.devcontainer/` folder as `devcontainer.json
 
 Every generated project, including `--packages none`, includes the exact custom seccomp profile and accompanying license from [`maestro-ui` commit `9a59451`](https://github.com/AChangXD/maestro-ui/commit/9a594511414368a091118152ebe1c11c47810987). The files are copied unchanged from `templates/devcontainer/`. Its `runArgs` contains only `--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-bwrap.json`, so Docker reads the profile from the generated project on your host. This repository's own dev container uses the same profile. Rebuild an existing dev container after updating its configuration and profile.
 
-The Dockerfile contains the selected installation steps. Codex configuration and instruction files are generated only when Codex is selected; authentication files are never copied. The PostgreSQL helper is included only when PostgreSQL is selected. Commit these generated files with your new project so its environment is version controlled.
+The Dockerfile contains the selected installation steps. Codex configuration and instruction files are generated only when Codex is selected; authentication files are never copied. The PostgreSQL helper is included only when PostgreSQL is selected. Commit these generated files with your project so its environment is version controlled. `init-container` adds the same files where they are missing; it does not update an existing Dockerfile or configuration to match new package choices.
 
 Every generated project includes an empty `tmp/` scratch directory, excluded from Git and the Docker build context, even when no packages are selected.
 
@@ -170,12 +184,12 @@ Existing generated projects keep their own files and are not changed by generato
 To remove the installed command links:
 
 ```bash
-rm "$HOME/.local/bin/create-container" "$HOME/.local/bin/create-dev-container"
+rm "$HOME/.local/bin/create-container" "$HOME/.local/bin/create-dev-container" "$HOME/.local/bin/init-container"
 ```
 
 ## Optional local Node.js installation
 
-If you prefer to run the generator directly and already have Node.js 22+ with npm, run `npm link` from this repository instead of the Bash installer. [`npm link`](https://docs.npmjs.com/cli/v11/commands/npm-link/) exposes the same two command names and runs the JavaScript CLI locally. Use one installation method at a time so your PATH selects the intended command.
+If you prefer to run the generator directly and already have Node.js 22+ with npm, run `npm link` from this repository instead of the Bash installer. [`npm link`](https://docs.npmjs.com/cli/v11/commands/npm-link/) exposes the same three command names and runs the JavaScript CLI locally. The `--runtime` option applies only to the Bash launchers. Use one installation method at a time so your PATH selects the intended command.
 
 ## Optional npm distribution
 
@@ -192,6 +206,13 @@ npm create @achangxd/container@latest my-app
 
 ```bash
 npm create @achangxd/container@latest my-app -- --packages python,node
+```
+
+To initialize an existing folder with the published package:
+
+```bash
+cd ~/projects/existing-app
+npm exec --package=@achangxd/create-container@latest -- init-container --yes
 ```
 
 Before the first release:
