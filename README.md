@@ -46,7 +46,9 @@ cd ~/projects/existing-app
 init-container
 ```
 
-`init-container` uses the same package picker and creates missing setup files in the current folder. It takes no project name or path. Existing files are preserved and reported as skipped, including files inside `.devcontainer/` and `.codex/`; missing files in those directories are still added. Conflicting directory paths and symlink parents are rejected before files are written.
+`init-container` first asks for the container name, with the current folder name as the default. Press Enter to confirm it, or type a different name for the generated dev container configuration. The folder stays in place. It then uses the same package picker and creates missing setup files in the current folder. It takes no positional name or path. `--yes` accepts the folder name and default tools without prompts; noninteractive runs also use the folder name. In a terminal, `--packages` skips the package picker but still confirms the name.
+
+Existing files are preserved and reported as skipped, including files inside `.devcontainer/` and `.codex/`; missing files in those directories are still added. An existing `devcontainer.json` keeps its current name and settings. Conflicting directory paths and symlink parents are rejected before files are written.
 
 The selected runtime downloads the Node 22 image on the first run and reuses its cached copy afterward. The launcher runs the generator in that container and removes the container when it exits. Its source files are mounted read-only, while your current directory is mounted for writing the new project. With Docker, use a local context: [bind mounts](https://docs.docker.com/engine/storage/bind-mounts/) cannot mount your Mac's folders into a remote Docker daemon.
 
@@ -63,7 +65,7 @@ create-container my-app --packages none         # Base development container
 create-container --runtime apple my-app         # Use Apple's container CLI
 create-container --runtime docker my-app        # Use Docker
 init-container                                 # Set up the current folder
-init-container --yes                           # All five default packages
+init-container --yes                           # Folder name and all default packages
 init-container --packages python,node           # Explicit selection
 init-container --runtime apple --packages none  # Base setup using Apple
 create-container --help

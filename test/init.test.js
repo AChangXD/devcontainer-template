@@ -15,10 +15,21 @@ function workspace(t) {
   return directory;
 }
 
-function run(cwd, args, environment = {}) {
-  const result = spawnSync(process.execPath, [cli, ...args], {
+function run(cwd, args, environment = {}, terminalInput) {
+  // Exercise the actual readline prompt through pipes while advertising a
+  // terminal. Explicit packages avoid needing to emulate raw-mode key events.
+  const invocation = terminalInput === undefined ? [cli, ...args] : [
+    '--input-type=module', '-e', `
+      import { pathToFileURL } from 'node:url';
+      process.stdin.isTTY = true;
+      process.stdout.isTTY = true;
+      await import(pathToFileURL(process.argv[1]));
+    `, cli, ...args,
+  ];
+  const result = spawnSync(process.execPath, invocation, {
     cwd,
     encoding: 'utf8',
+    input: terminalInput,
     timeout: 10_000,
     env: {
       ...process.env,
@@ -107,6 +118,62 @@ test('init honors the host project name supplied by a container launcher', (t) =
   const config = JSON.parse(readFileSync(join(cwd, '.devcontainer', 'devcontainer.json'), 'utf8'));
   assert.equal(config.name, 'Host project');
   assert.equal(existsSync(join(cwd, 'Host project')), false);
+});
+
+test('interactive init confirms the folder name and accepts Enter or whitespace as the default', (t) => {
+  for (const answer of ['\n', '   \n']) {
+    const cwd = workspace(t);
+    const result = run(cwd, ['--packages', 'none'], {}, answer);
+    successful(result);
+    assert.ok(result.output.includes(`Container name [${basename(cwd)}]: `), result.output);
+    const config = JSON.parse(readFileSync(join(cwd, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.equal(config.name, basename(cwd));
+    assert.doesNotMatch(result.output, /Choose tools/);
+  }
+});
+
+test('interactive init accepts a replacement container name without moving the project', (t) => {
+  const root = workspace(t);
+  const cwd = join(root, 'existing-project');
+  mkdirSync(cwd);
+  writeFileSync(join(cwd, 'keep.txt'), 'existing project content');
+  const result = run(cwd, ['--packages', 'none'], {}, '  My custom container  \n');
+  successful(result);
+  const config = JSON.parse(readFileSync(join(cwd, '.devcontainer', 'devcontainer.json'), 'utf8'));
+  assert.equal(config.name, 'My custom container');
+  assert.equal(readFileSync(join(cwd, 'keep.txt'), 'utf8'), 'existing project content');
+  assert.deepEqual(readdirSync(root), ['existing-project']);
+  assert.equal(existsSync(join(cwd, 'My custom container')), false);
+});
+
+test('interactive init offers the host folder name when running through a launcher', (t) => {
+  const cwd = workspace(t);
+  const result = run(cwd, ['--packages', 'none'], { CREATE_CONTAINER_PROJECT_NAME: 'Host project' }, '\n');
+  successful(result);
+  assert.ok(result.output.includes('Container name [Host project]: '), result.output);
+  const config = JSON.parse(readFileSync(join(cwd, '.devcontainer', 'devcontainer.json'), 'utf8'));
+  assert.equal(config.name, 'Host project');
+});
+
+test('init --yes accepts the default name without prompting even in a terminal', (t) => {
+  const cwd = workspace(t);
+  const result = run(cwd, ['--yes', '--packages', 'none'], {}, '');
+  successful(result);
+  assert.doesNotMatch(result.output, /Container name \[/);
+  const config = JSON.parse(readFileSync(join(cwd, '.devcontainer', 'devcontainer.json'), 'utf8'));
+  assert.equal(config.name, basename(cwd));
+});
+
+test('cancelling the name confirmation or closing input leaves the project untouched', (t) => {
+  for (const answer of ['\x03', '']) {
+    const cwd = workspace(t);
+    writeFileSync(join(cwd, 'keep.txt'), 'existing project content');
+    const before = snapshot(cwd);
+    const result = run(cwd, ['--packages', 'none'], {}, answer);
+    assert.equal(result.status, 130, result.output);
+    assert.match(result.output, /Cancelled/);
+    assert.deepEqual(snapshot(cwd), before);
+  }
 });
 
 test('init --packages none creates only the base container', (t) => {
