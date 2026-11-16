@@ -17,6 +17,7 @@
         "workbench.iconTheme": "material-icon-theme"
       },
       "extensions": [
+        "ms-vscode.live-server",
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-azuretools.vscode-docker",
