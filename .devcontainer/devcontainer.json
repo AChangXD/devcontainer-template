@@ -21,7 +21,6 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-azuretools.vscode-docker",
-        "stackbreak.comment-divider",
         "PKief.material-icon-theme",
         "esbenp.prettier-vscode",
         "eamodio.gitlens",
